@@ -16,7 +16,7 @@ def snapshot_data(folder, interval, filename='c:\\Users\manoj\Downloads\Major pr
 
 def snapshot_daily():
      #filepath='DATASETS/C:\\Users\manoj\Downloads\Major project data\DATASETS\Sectors & Stock symbols.csv'
-     filepath="indicesstocks.csv"
+     filepath="C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\indicesstocks.csv"
      with open(filepath) as f:
          for line in f:
              if "," not in line:
@@ -28,16 +28,16 @@ def snapshot_daily():
                 # #data = yf.download(symbol, start="1y", end="max")
                 symbol=i
                 try:
-                    data = yf.download(symbol, period='max',interval='1d')
+                    data = yf.download(symbol, period='5y',interval='1d')
                     ticketfilename = symbol.replace(".","_")
-                    data.to_csv('DATASETS/Daily_data/{}.csv'.format(ticketfilename))
+                    data.to_csv('C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\Daily_data/{}.csv'.format(ticketfilename))
                     print("script {} downloaded...!".format(symbol))
                 except:
                     print("")
      return True
 
 def snapshot_weekly():
-     filepath="indicesstocks.csv"
+     filepath="C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\indicesstocks.csv"
      with open(filepath) as f:
          for line in f:
              if "," not in line:
@@ -49,16 +49,16 @@ def snapshot_weekly():
                 # #data = yf.download(symbol, start="1y", end="max")
                 symbol=i
                 try:
-                    data = yf.download(symbol, period='max',interval='1wk')
+                    data = yf.download(symbol, period='5y',interval='1wk')
                     ticketfilename = symbol.replace(".","_")
-                    data.to_csv('DATASETS/Weekly_data/{}.csv'.format(ticketfilename))
+                    data.to_csv('C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\Weekly_data/{}.csv'.format(ticketfilename))
                     print("script {} downloaded...!".format(symbol))
                 except:
                     print("")
      return True
 
 def snapshot_monthly():
-     filepath="indicesstocks.csv"
+     filepath="C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\indicesstocks.csv"
      with open(filepath) as f:
          for line in f:
              if "," not in line:
@@ -70,9 +70,9 @@ def snapshot_monthly():
                 # #data = yf.download(symbol, start="1y", end="max")
                 symbol=i
                 try:
-                    data = yf.download(symbol, period='max',interval='1mo')
+                    data = yf.download(symbol, period='5y',interval='1mo')
                     ticketfilename = symbol.replace(".","_")
-                    data.to_csv('DATASETS/Monthly_data/{}.csv'.format(ticketfilename))
+                    data.to_csv('C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\Monthly_data/{}.csv'.format(ticketfilename))
                     print("script {} downloaded...!".format(symbol))
                 except:
                     print("")
