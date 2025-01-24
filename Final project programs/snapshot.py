@@ -1,92 +1,60 @@
 import yfinance as yf
+import pandas as pd
+import os
+from datetime import date
 
-# Valid intervals: [1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo]')
-def snapshot_data(folder, interval, filename='c:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\indicesstocks.csv'):
-    filepath='DATASETS/{}.csv'.format(filename)
+def get_latest_date():
+    today = date.today()
+    return today.strftime("%Y-%m-%d")
+
+
+def clean_and_save_data(data, filepath):
+    # Reset index to include the 'Date' column in the DataFrame
+    data.reset_index(inplace=True)
+
+    # Remove column-level names, if any
+    data.columns = [col[0] if isinstance(col, tuple) else col for col in data.columns]
+    
+    # Remove rows with any non-numeric values in the data columns (excluding 'Date')
+    for col in data.columns[1:]:  # Skip the 'Date' column
+        data[col] = pd.to_numeric(data[col], errors='coerce')
+    data = data.dropna()  # Drop rows with NaN values
+
+    # Save the cleaned data to CSV
+    data.to_csv(filepath, index=False)
+    print(f"Cleaned data saved to: {filepath}")
+
+
+# Function to download and save stock data
+def download_stock_data(interval, folder):
+    base_path = "C://Users//manoj//Downloads//Major project data//Major pro source codes//DATASETS"
+    filepath = os.path.join(base_path, "indicesstocks.csv")
+    start_date = "2020-01-01"
+    end_date = get_latest_date()
     with open(filepath) as f:
         for line in f:
             if "," not in line:
                 continue
-            symbol = line.split(",")[0]
-            data = yf.download(symbol, period='2y',interval=interval)
-            ticketfilename = symbol.replace(".","_")
-            data.to_csv('DATASETS/{}/{}.csv'.format(folder,ticketfilename))
-            print("{} data for {} is downloaded sucessfully at {} ...!".format(interval, folder, symbol))
-    return True
-
-def snapshot_daily():
-     #filepath='DATASETS/C:\\Users\manoj\Downloads\Major project data\DATASETS\Sectors & Stock symbols.csv'
-     filepath="C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\indicesstocks.csv"
-     with open(filepath) as f:
-         for line in f:
-             if "," not in line:
-                 continue
-             symbol = line.split(",")[1]
-             symbols = line.split(",")
-             for i in symbols:
-                # #print(i)
-                # #data = yf.download(symbol, start="1y", end="max")
-                symbol=i
+            symbols = line.split(",")
+            for symbol in symbols:
+                symbol = symbol.strip()  # Remove any whitespace
                 try:
-                    data = yf.download(symbol, period='5y',interval='1d')
-                    ticketfilename = symbol.replace(".","_")
-                    data.to_csv('C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\Daily_data/{}.csv'.format(ticketfilename))
-                    print("script {} downloaded...!".format(symbol))
-                except:
-                    print("")
-     return True
+                    # Download stock data
+                    data = yf.download(symbol, start=start_date, end=end_date, interval=interval)
+                    ticketfilename = symbol.replace(".", "_")
+                    save_path = os.path.join(base_path, folder, f"{ticketfilename}.csv")
+                    # Clean the data and save
+                    clean_and_save_data(data, save_path)
+                except Exception as e:
+                    print(f"Error downloading data for {symbol}: {e}")
 
-def snapshot_weekly():
-     filepath="C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\indicesstocks.csv"
-     with open(filepath) as f:
-         for line in f:
-             if "," not in line:
-                 continue
-             symbol = line.split(",")[1]
-             symbols = line.split(",")
-             for i in symbols:
-                # #print(i)
-                # #data = yf.download(symbol, start="1y", end="max")
-                symbol=i
-                try:
-                    data = yf.download(symbol, period='5y',interval='1wk')
-                    ticketfilename = symbol.replace(".","_")
-                    data.to_csv('C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\Weekly_data/{}.csv'.format(ticketfilename))
-                    print("script {} downloaded...!".format(symbol))
-                except:
-                    print("")
-     return True
-
-def snapshot_monthly():
-     filepath="C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\indicesstocks.csv"
-     with open(filepath) as f:
-         for line in f:
-             if "," not in line:
-                 continue
-             symbol = line.split(",")[1]
-             symbols = line.split(",")
-             for i in symbols:
-                # #print(i)
-                # #data = yf.download(symbol, start="1y", end="max")
-                symbol=i
-                try:
-                    data = yf.download(symbol, period='5y',interval='1mo')
-                    ticketfilename = symbol.replace(".","_")
-                    data.to_csv('C:\\Users\manoj\Downloads\Major project data\Major pro source codes\DATASETS\Monthly_data/{}.csv'.format(ticketfilename))
-                    print("script {} downloaded...!".format(symbol))
-                except:
-                    print("")
-     return True
-
+# Main function
 if __name__ == '__main__':
-    snapshot_daily()
-    snapshot_weekly()
-    snapshot_monthly()
-    #snapshot_data('DAILY_DATA','1d', 'INDICES')
-    #snapshot_data('WEEKLY_DATA','1wk', 'INDICES')
-    #snapshot_data('MONTHLY_DATA','1mo', 'INDICES')
-    #snapshot_data('15min','15m', 'INDICES')
-    #snapshot_data('DAILY','1d', 'INDICES')
-    #snapshot_data('weekly','1wk', 'INDICES')
-    #snapshot_data('monthly','1mo', 'INDICES')
-    #snapshot_data('3months','3mo', 'INDICES')
+    print("Starting to download and clean stock data...")
+    # Daily data
+    download_stock_data(interval='1d', folder='Daily_data')
+    # Weekly data
+    download_stock_data(interval='1wk', folder='Weekly_data')
+    # Monthly data
+    download_stock_data(interval='1mo', folder='Monthly_data')
+    print("All stock data downloaded and cleaned successfully!")
