@@ -1,167 +1,220 @@
-import yfinance as yf
 import pandas as pd
 import numpy as np
+import yfinance as yf
+import os
+# import math
+from sklearn.metrics import r2_score 
 from sklearn.preprocessing import MinMaxScaler
+import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import LSTM
+# from itertools import cycle
+import warnings
+warnings.filterwarnings("ignore")
+
+# Function to create dataset for time-series prediction
+def create_dataset(dataset, time_step=1):
+    dataX, dataY = [], []
+    for i in range(len(dataset)-time_step-1):
+        a = dataset[i:(i+time_step), 0]   ###i=0, 0,1,2,3-----99   100 
+        dataX.append(a)
+        dataY.append(dataset[i + time_step, 0])
+    return np.array(dataX), np.array(dataY)
+
+# Main function to get predicted values
+def getpredictedvalues(selectedscript_1, start_date=None, end_date=None):
+    # selectedscript_1 = daily_data
+    # Finding null values, if any
+    selectedscript_1.isnull().sum()
+
+    # Removing the row which have null value
+    selectedscript_2 = selectedscript_1.dropna().reset_index(drop=True)
+
+    # Checking whether if there exist any null values
+    selectedscript_2[selectedscript_2.isnull().any(axis=1)]
+
+    # Making a copy of dataset as selectedscript
+    selectedscript = selectedscript_2.copy()
+
+    # Converting the date column into datetime 
+    selectedscript['Date'] = pd.to_datetime(selectedscript['Date'], format='%Y-%m-%d')
+
+    # Filter data based on the specified date range
+    if start_date and end_date:
+        selectedscript = selectedscript[(selectedscript['Date'] >= start_date) & (selectedscript['Date'] <= end_date)]
+
+    # Setting the date column as index
+    selectedscript = selectedscript.set_index('Date')
+
+    ## Model Building - Creating dataframe which only includes date and close time
+    close_df = pd.DataFrame(selectedscript['Close'])
+    close_df = close_df.reset_index()
+
+    ### Normalizing / scaling close value between 0 to 1
+    close_stock = close_df.copy()
+    del close_df['Date']
+    scaler = MinMaxScaler(feature_range=(0,1))
+    closedf = scaler.fit_transform(np.array(close_df).reshape(-1,1))
+    #print(closedf.shape)
+
+    ### Split data for training and testing
+    #- Ratio for training and testing data is 80:20
+    training_size = int(len(closedf)*0.80)
+    test_size = len(closedf) - training_size
+    train_data, test_data = closedf[0:training_size,:], closedf[training_size:len(closedf),:1]
+    #print("train_data: ", train_data.shape)
+    #print("test_data: ", test_data.shape)
+
+    # reshape into X=t,t+1,t+2,t+3 and Y=t+4
+    time_step = 13
+    X_train, y_train = create_dataset(train_data, time_step)
+    X_test, y_test = create_dataset(test_data, time_step)
+
+    #print("X_train: ", X_train.shape)
+    #print("y_train: ", y_train.shape)
+    #print("X_test: ", X_test.shape)
+    #print("y_test", y_test.shape)
+
+    ## Algorithms - LSTM - reshape input to be [samples, time steps, features] which is required for LSTM
+    X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
+    X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
+    #print("X_train: ", X_train.shape)
+    #print("X_test: ", X_test.shape)
+
+    ### LSTM model structure
+    tf.keras.backend.clear_session()
+    model = Sequential()
+    model.add(LSTM(32, return_sequences=True, input_shape=(time_step,1)))
+    model.add(LSTM(32, return_sequences=True))
+    model.add(LSTM(32))
+    model.add(Dense(1))
+    model.compile(loss='mean_squared_error', optimizer='adam')
+    model.summary()
+
+    ### Model Training
+    model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=20, batch_size=32, verbose=1)
+
+    ### Lets Do the prediction and check performance metrics
+    train_predict = model.predict(X_train)
+    test_predict = model.predict(X_test)
+    train_predict.shape, test_predict.shape
+
+    # Transform back to original form
+    train_predict = scaler.inverse_transform(train_predict)
+    test_predict = scaler.inverse_transform(test_predict)
+    original_ytrain = scaler.inverse_transform(y_train.reshape(-1,1)) 
+    original_ytest = scaler.inverse_transform(y_test.reshape(-1,1))
+
+    ### R2 score for regression
+    train_r2_lstm = r2_score(original_ytrain, train_predict)
+    test_r2_lstm = r2_score(original_ytest, test_predict)
+    #print("Train data R2 score:", train_r2_lstm)
+    #print("Test data R2 score:", test_r2_lstm)
+
+    ### Comparision between original stock close price vs predicted close price
+    look_back = time_step
+    trainPredictPlot = np.empty_like(closedf)
+    trainPredictPlot[:, :] = np.nan
+    trainPredictPlot[look_back:len(train_predict)+look_back, :] = train_predict
+    #print("Train predicted data: ", trainPredictPlot.shape)
+
+    ### Predicting next 5 days
+    x_input = test_data[len(test_data)-time_step:].reshape(1,-1)
+    temp_input = list(x_input)
+    temp_input = temp_input[0].tolist()
+
+    lst_output = []
+    n_steps = time_step
+    i = 0
+    pred_days = 5
+    while(i < pred_days):
+        if(len(temp_input) > time_step):
+            x_input = np.array(temp_input[1:])
+            x_input = x_input.reshape(1,-1)
+            x_input = x_input.reshape((1, n_steps, 1))
+            yhat = model.predict(x_input, verbose=0)
+            temp_input.extend(yhat[0].tolist())
+            temp_input = temp_input[1:]
+            lst_output.extend(yhat.tolist())
+            i = i+1
+        else:
+            x_input = x_input.reshape((1, n_steps,1))
+            yhat = model.predict(x_input, verbose=0)
+            temp_input.extend(yhat[0].tolist())
+            lst_output.extend(yhat.tolist())
+            i = i+1
+
+    # #print("Output of predicted next days: ", len(lst_output))
+
+    lstmdf = closedf.tolist()
+    lstmdf.extend((np.array(lst_output).reshape(-1,1)).tolist())
+    lstmdf = scaler.inverse_transform(lstmdf).reshape(1,-1).tolist()[0]
+    finaldf = pd.DataFrame({'lstm': lstmdf})
+
+    data = {"Model": ["LSTM"], "Train R2 Score": [train_r2_lstm], "Test R2 Score": [test_r2_lstm]}
+    df = pd.DataFrame(data)
+    # #print(df)
+    # #print(finaldf.to_string())
+    # #print(selectedscript.to_string()) 
+
+    return df, finaldf, selectedscript
+    
+    import pandas as pd
 import os
 from tabulate import tabulate
-import datetime
 
-def load_filtered_indices(file_path):
-    """Loads index codes from the filtered indices output file."""
-    try:
-        df = pd.read_csv(file_path)
-        return df['indexcode'].tolist()
-    except Exception as e:
-        print(f"Chat: Error loading filtered indices: {e}")
-        return None
+# Load data from the CSV file
+file_path = 'C://Users//manoj//Downloads//Major project data//Major pro source codes//DATASETS//filtered_indices_output.csv'
+daily_data_path = 'C://Users//manoj//Downloads//Major project data//Major pro source codes//DATASETS//Daily_data'
 
-def get_stock_data_from_csv(indexcode, daily_data_path):
-    """Reads stock data from a CSV file based on indexcode."""
-    filename = f"{indexcode.replace('.','_')}.csv"
-    file_path = os.path.join(daily_data_path, filename)
-    if not os.path.exists(file_path):
-      print(f"Chat: File not found: {file_path}")
-      return None
-    try:
-        df = pd.read_csv(file_path)
-        if df.empty:
-            print(f"Chat: No data in file: {file_path}")
-            return None
-        return df
-    except Exception as e:
-        print(f"Chat: Error reading data from {file_path}: {e}")
-        return None
+try:
+    selected_indices = pd.read_csv(file_path)
+    #print(f"Data loaded successfully from {file_path}")
+except FileNotFoundError:
+    #print(f"Error: File not found at {file_path}")
+    exit()
+except Exception as e:
+    #print(f"An error occurred: {e}")
+    exit()
 
-def prepare_data_for_lstm(df, lookback=7):
-    """Prepares data for LSTM training, scaling and creating sequences."""
-    if df is None or 'Close' not in df.columns:
-        return None, None, None
-        
-    # Check if 'Close' column contains numeric data
-    if not pd.api.types.is_numeric_dtype(df['Close']):
-        print(f"Chat: Non-numeric data found in 'Close' column. Skipping scaling for this index.")
-        return None, None, None
+# Iterate through each unique index code
+unique_index_codes = selected_indices['indexcode'].unique()
+for index_code in unique_index_codes:
+    # Filter the selected indices for the current index code
+    filtered_indices = selected_indices[selected_indices['indexcode'] == index_code]
     
-    data = df['Close'].values.reshape(-1, 1)
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    
-    try:
-       scaled_data = scaler.fit_transform(data)
-    except Exception as e:
-        print(f"Chat: Error during scaling: {e}. Skipping this index.")
-        return None, None, None
+    # Iterate through each row of the filtered indices
+    for id, row in filtered_indices.iterrows():
+        if(id>=0):
+            index_name = row['indexname']
+            
+            # Construct the file path for the daily data
+            daily_file_name = f"{index_name.replace('.', '_')}.csv"
+            daily_file_path = os.path.join(daily_data_path, daily_file_name)
+            
+            try:
+                daily_data = pd.read_csv(daily_file_path)
+                                
+                # #print the DataFrame in tabular format using tabulate
+                #print(tabulate(daily_data.head(), headers='keys', tablefmt='fancy_grid', showindex=False))
 
+                '''
+                df = % of accuracy for training and testing data
+                finaldf = predicted values
+                selectedscript = original data                
+                ''' 
+                df, finaldf, selectedscript = getpredictedvalues(daily_data)
+                predectedvalues=finaldf.tail(5)
+                
+                print(f"\nData for Index Code: {index_code}, Index Name: {index_name}")
+                print(df)
+                print(predectedvalues)
 
-    X, y = [], []
-    for i in range(lookback, len(scaled_data)):
-        X.append(scaled_data[i-lookback:i, 0])
-        y.append(scaled_data[i, 0])
+                
+            except FileNotFoundError:
+                print(f"Error: File not found at {daily_file_path} for {index_name}")
+            except Exception as e:
+                print(f"An error occurred while loading data for {index_name}: {e}")
 
-    return np.array(X), np.array(y), scaler
-
-
-def create_lstm_model(input_shape):
-    """Creates a basic LSTM model."""
-    model = Sequential()
-    model.add(LSTM(units=50, return_sequences=True, input_shape=input_shape))
-    model.add(LSTM(units=50))
-    model.add(Dense(units=1))
-    model.compile(optimizer='adam', loss='mean_squared_error')
-    return model
-
-def calculate_expected_high_low(df, predicted_close):
-    """Calculates expected high and low based on historical data."""
-    if df is None:
-        return None, None
-    last_20_days = df.tail(20)  #Taking the last 20 day data for calculating expected High and Low
-    if last_20_days.empty:
-         return None, None
-    
-    high_values = last_20_days['High'].values
-    low_values = last_20_days['Low'].values
-    
-    if len(high_values) == 0 or len(low_values) == 0:
-            return None, None
-    
-    average_high = np.mean(high_values)
-    average_low = np.mean(low_values)
-
-    expected_high = predicted_close + (average_high - np.mean(last_20_days['Close'].values))
-    expected_low = predicted_close - (np.mean(last_20_days['Close'].values) - average_low)
-    
-    return expected_high, expected_low
-
-def calculate_accuracy(df, predicted_close, lookback=7):
-    """Calculates accuracy of the prediction based on last lookback days data"""
-    if df is None or len(df) <= lookback:
-        return None  # Not enough data for comparison
-    actual_close_price = df['Close'].iloc[-1]
-    accuracy = 100 - (abs(predicted_close- actual_close_price)/ actual_close_price *100)
-    return accuracy
-
-
-def train_and_predict(indexcode, daily_data_path, lookback=7):
-    """
-    Fetches stock data, prepares it, trains an LSTM model, and returns the last prediction,
-    expected high and low, and accuracy
-    """
-    print(f"Chat: Starting processing for {indexcode}...")
-    df = get_stock_data_from_csv(indexcode, daily_data_path)
-    if df is None:
-        print(f"Chat: No data for {indexcode}, skipping...")
-        return None, None, None ,None
-
-    X, y, scaler = prepare_data_for_lstm(df,lookback)
-
-    if X is None or y is None:
-        print(f"Chat: Unable to prepare data for {indexcode}, skipping...")
-        return None, None,None, None
-
-    X = np.reshape(X, (X.shape[0], X.shape[1], 1))
-
-    model = create_lstm_model(input_shape=(X.shape[1], 1))
-    model.fit(X, y, epochs=10, batch_size=32, verbose=0)
-
-    last_input = X[-1]
-    last_input = np.reshape(last_input, (1, last_input.shape[0], 1))
-    predicted_scaled_value = model.predict(last_input, verbose = 0)[0][0]
-    predicted_close = scaler.inverse_transform([[predicted_scaled_value]])[0][0]
-
-    expected_high, expected_low = calculate_expected_high_low(df, predicted_close)
-    accuracy = calculate_accuracy(df, predicted_close)
-    print(f"Chat: Prediction completed for {indexcode}")
-    return predicted_close, expected_high, expected_low, accuracy
-
-
-if __name__ == '__main__':
-    filtered_indices_file = 'C://Users//manoj//Downloads//Major project data//Major pro source codes//DATASETS//filtered_indices_output.csv'
-    daily_data_path = 'C://Users//manoj//Downloads//Major project data//Major pro source codes//DATASETS//Daily_data'
-    output_file = 'C://Users//manoj//Downloads//Major project data//Major pro source codes//DATASETS//lstm_output.csv' # Output file path
-    lookback_days=7
-    indexcodes = load_filtered_indices(filtered_indices_file)
-
-    if indexcodes is None:
-        print("Chat: No indices loaded. Exiting.")
-        exit()
-
-    results = []
-    for indexcode in indexcodes:
-      predicted_value, expected_high, expected_low, accuracy = train_and_predict(indexcode, daily_data_path, lookback_days)
-      if predicted_value is not None:
-        results.append({
-            "Index Code": indexcode,
-            "Predicted Close": f"{predicted_value:.2f}",
-            "Expected High": f"{expected_high:.2f}" if expected_high is not None else "N/A",
-            "Expected Low": f"{expected_low:.2f}" if expected_low is not None else "N/A",
-            "Accuracy" : f"{accuracy:.2f}%" if accuracy is not None else "N/A"
-            })
-
-    if results:
-        df_results = pd.DataFrame(results)
-        df_results.to_csv(output_file, index=False)  # Save to CSV
-        print(f"Chat: Results saved to: {output_file}")
-        print(tabulate(results, headers="keys", tablefmt="fancy_grid"))
-    else:
-        print("Chat: No results to display.")
+# #print(tabulate(daily_data.head(), headers='keys', tablefmt='fancy_grid', showindex=False))
